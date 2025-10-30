@@ -1,133 +1,70 @@
+# sleep_tracker.py
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-import datetime
-from supabase import create_client, Client
+import sqlite3
+from datetime import date
 
-SUPABASE_URL = "https://ojyyyxwsezhulucusbqw.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qeXl5eHdzZXpodWx1Y3VzYnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3ODg1OTMsImV4cCI6MjA3NzM2NDU5M30.vAxOYfdv90_qZPwWHEpHtuQ8sgyukfsWADm6UQFDZig"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# --- Database setup ---
+conn = sqlite3.connect("sleep_logs.db", check_same_thread=False)
+c = conn.cursor()
 
-# test insert
-resp = supabase.table("sleep_logs").upsert({
-    "household":"TestHouse",
-    "user":"TestUser",
-    "date":"2025-10-30",
-    "sleep_hours":8,
-    "mood":7,
-    "tips_applied":"None",
-    "sleep_score":86
-}).execute()
+# Create table if it doesn't exist
+c.execute('''
+CREATE TABLE IF NOT EXISTS sleep_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    household TEXT,
+    user TEXT,
+    log_date TEXT,
+    sleep_hours REAL,
+    mood INTEGER,
+    tips_applied TEXT
+)
+''')
+conn.commit()
 
-print(resp)
+# --- Functions ---
+def insert_log(household, user, log_date, sleep_hours, mood, tips_applied):
+    c.execute('''
+        INSERT INTO sleep_logs (household, user, log_date, sleep_hours, mood, tips_applied)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (household, user, log_date, sleep_hours, mood, tips_applied))
+    conn.commit()
 
 def get_logs(household):
-    response = supabase.table("sleep_logs").select("*").eq("household", household).execute()
-    df = pd.DataFrame(response.data)
-    if not df.empty:
-        df['date'] = pd.to_datetime(df['date']).dt.date
-    return df
+    return pd.read_sql_query(
+        "SELECT * FROM sleep_logs WHERE household = ? ORDER BY log_date DESC", conn, params=(household,)
+    )
 
-def insert_log(household, user, date, sleep_hours, mood, tips):
-    score = sleep_hours*10 + mood*2
-    supabase.table("sleep_logs").upsert({
-        "household": household,
-        "user": user,
-        "date": date.isoformat(),
-        "sleep_hours": sleep_hours,
-        "mood": mood,
-        "tips_applied": tips,
-        "sleep_score": score
-    }).execute()
-    return score
+# --- Streamlit App ---
+st.set_page_config(page_title="Family Sleep Tracker", page_icon="🛌", layout="centered")
 
-def rolling_stats(df, window=7):
-    return df['sleep_hours'].rolling(window, min_periods=1).mean(), df['mood'].rolling(window, min_periods=1).mean()
-
-def detect_streak(df, threshold=7):
-    df_sorted = df.sort_values('date')
-    good = df_sorted['sleep_hours'] >= threshold
-    streak = 0
-    for val in good[::-1]:
-        if val: streak+=1
-        else: break
-    return streak
-
-def predict_next_sleep(df):
-    if len(df) < 3: return None
-    x = np.arange(len(df))
-    y = df['sleep_hours'].to_numpy()
-    slope, intercept = np.polyfit(x, y, 1)
-    return slope*len(df) + intercept
-
-def generate_tips(df, days=7):
-    recent = df.tail(days)
-    tips=[]
-    if recent.empty:
-        tips.append(("No data","Log sleep to get tips."))
-        return tips
-    avg = recent['sleep_hours'].mean()
-    var = recent['sleep_hours'].max() - recent['sleep_hours'].min()
-    mood_avg = recent['mood'].mean()
-    if avg<6: tips.append(("Short Sleep","Target 7-9h. Fix bedtime and avoid late caffeine."))
-    elif avg<7: tips.append(("Slight Deficit","Shift bedtime 15-30 min earlier."))
-    else: tips.append(("Good Average Sleep","Maintain consistency."))
-    if var>=3: tips.append(("High Variability","Keep bedtime/wake within 1h daily."))
-    if mood_avg<6 and avg<7: tips.append(("Mood & Sleep","Improving sleep may boost mood."))
-    return tips
-
-def plot_sleep_and_mood(df):
-    fig, ax1 = plt.subplots(figsize=(10,5))
-    if df.empty:
-        ax1.text(0.5,0.5,"No data to plot",ha='center',va='center')
-        return fig
-    x=pd.to_datetime(df['date'])
-    ax1.plot(x, df['sleep_hours'], marker='o', color='tab:blue')
-    ax1.set_ylabel('Sleep Hours', color='tab:blue')
-    ax2 = ax1.twinx()
-    ax2.plot(x, df['mood'], marker='x', linestyle='--', color='tab:orange')
-    ax2.set_ylabel('Mood', color='tab:orange')
-    fig.autofmt_xdate(rotation=30)
-    fig.tight_layout()
-    return fig
-
-st.set_page_config("Sleep Tracker","wide")
 st.title("Family Sleep Tracker")
-household = st.text_input("Household name", "MyHouse")
-user = st.text_input("Your name", "User1")
-col1,col2 = st.columns([1,2])
 
-with col1:
-    st.header("Log Today")
-    with st.form("log_form", clear_on_submit=False):
-        date_input = st.date_input("Date", datetime.date.today())
-        sleep_hours = st.number_input("Sleep hours",0.0,24.0,8.0,0.25)
-        mood = st.number_input("Mood (1-10)",1,10,7,1)
-        tips_applied = st.text_input("Tips applied","")
-        submitted = st.form_submit_button("Save Log")
-        if submitted:
-            score = insert_log(household,user,date_input,sleep_hours,mood,tips_applied)
-            st.success(f"Saved {date_input}: sleep {sleep_hours}h, mood {mood}, score {score:.1f}")
-    if st.button("Export CSV"):
-        df_all = get_logs(household)
-        if df_all.empty: st.warning("No logs to export.")
-        else: st.download_button("Download CSV",data=df_all.to_csv(index=False).encode('utf-8'),file_name="sleep_logs.csv")
+# --- User Inputs ---
+household = st.text_input("Household name", "Best House")
+user = st.text_input("Your name", "Favorite Child")
+log_date = st.date_input("Date", date.today())
+sleep_hours = st.number_input("Sleep hours", min_value=0.0, max_value=24.0, value=7.0, step=0.25)
+mood = st.slider("Mood (1-10)", 1, 10, 7)
+tips_applied = st.text_area("Tips applied", "")
 
-with col2:
-    st.header("Trends & Insights")
-    df = get_logs(household)
-    st.metric("Total logged days",len(df))
-    if df.empty: st.info("No data yet.")
-    else:
-        st.subheader("Recent data (last 30)")
-        st.dataframe(df.tail(30).sort_values('date',ascending=False))
-        window = st.slider("Rolling window",3,21,7)
-        rolling_sleep,rolling_mood = rolling_stats(df,window)
-        st.line_chart(pd.DataFrame({"rolling_sleep":rolling_sleep,"rolling_mood":rolling_mood},index=df['date']))
-        st.pyplot(plot_sleep_and_mood(df))
-        pred = predict_next_sleep(df)
-        if pred: st.subheader("Next-day predicted sleep"); st.write(f"{pred:.2f} hours")
-        st.metric("Current good-sleep streak", detect_streak(df))
-        st.subheader("Personalized tips (last 7 days)")
-        for t,e in generate_tips(df,7): st.info(f"**{t}**: {e}")
+if st.button("Log Today"):
+    insert_log(household, user, str(log_date), sleep_hours, mood, tips_applied)
+    st.success("Log saved!")
+
+# --- Display logs ---
+df = get_logs(household)
+if not df.empty:
+    st.subheader(f"{household} Sleep Logs")
+    st.dataframe(df[['log_date', 'user', 'sleep_hours', 'mood', 'tips_applied']])
+    
+    # Plot sleep hours over time
+    st.subheader("Sleep Hours Over Time")
+    st.line_chart(df[['log_date', 'sleep_hours']].set_index('log_date'))
+    
+    # Plot mood over time
+    st.subheader("Mood Over Time")
+    st.line_chart(df[['log_date', 'mood']].set_index('log_date'))
+
+else:
+    st.info("No logs yet. Start by logging today's sleep!")
