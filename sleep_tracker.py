@@ -8,7 +8,6 @@ from datetime import date
 conn = sqlite3.connect("sleep_logs.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create table if it doesn't exist
 c.execute('''
 CREATE TABLE IF NOT EXISTS sleep_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,51 +31,47 @@ def insert_log(household, user, log_date, sleep_hours, mood, tips_applied):
 
 def get_logs(household):
     return pd.read_sql_query(
-        "SELECT * FROM sleep_logs WHERE household = ? ORDER BY log_date DESC",
-        conn,
-        params=(household,)
+        "SELECT * FROM sleep_logs WHERE household = ? ORDER BY log_date DESC", conn, params=(household,)
     )
 
 def generate_tips(sleep_hours, mood, previous_tips):
-    all_tips = []
+    tips = []
+
     if sleep_hours < 6 and "Reduce screen time 1 hour before bed" not in previous_tips:
-        all_tips.append("Reduce screen time 1 hour before bed")
+        tips.append("Reduce screen time 1 hour before bed")
     if sleep_hours > 9 and "Avoid oversleeping to maintain routine" not in previous_tips:
-        all_tips.append("Avoid oversleeping to maintain routine")
+        tips.append("Avoid oversleeping to maintain routine")
     if mood <= 4 and "Try a 5-minute mindfulness exercise before bed" not in previous_tips:
-        all_tips.append("Try a 5-minute mindfulness exercise before bed")
+        tips.append("Try a 5-minute mindfulness exercise before bed")
     if mood >= 8 and "Keep up your positive bedtime habits!" not in previous_tips:
-        all_tips.append("Keep up your positive bedtime habits!")
+        tips.append("Keep up your positive bedtime habits!")
     if "Try journaling your thoughts before sleep" not in previous_tips:
-        all_tips.append("Try journaling your thoughts before sleep")
-    return all_tips[:2]
+        tips.append("Try journaling your thoughts before sleep")
+
+    return tips[:2]
 
 # --- Streamlit App ---
-st.set_page_config(page_title="Family Sleep Tracker", page_icon="🛌", layout="centered")
-st.title("Family Sleep Tracker")
+st.set_page_config(page_title="Sleep Buddy", page_icon="🛌", layout="centered")
+st.title("Sleep Buddy")
 
+# --- Inputs ---
 household = st.text_input("Household name", placeholder="Enter household name")
 user = st.text_input("Your name", placeholder="Enter your name")
 log_date = st.date_input("Date", date.today())
 sleep_hours = st.number_input("Sleep hours", min_value=0.0, max_value=24.0, value=7.0, step=0.25)
 mood = st.slider("Mood (1-10)", 1, 10, 7)
 
-# Generate contextual tips
-df_previous = get_logs(household)
-previous_tips = []
-if not df_previous.empty:
-    previous_tips = df_previous["tips_applied"].dropna().tolist()
-
-auto_tips = generate_tips(sleep_hours, mood, previous_tips)
-tips_text = "\n".join(auto_tips)
-
-st.text_area("Suggested Tips", tips_text, height=100, disabled=True)
-
 if st.button("Log Today"):
+    new_tips = generate_tips(sleep_hours, mood, [])
+    tips_text = "; ".join(new_tips)
     insert_log(household, user, str(log_date), sleep_hours, mood, tips_text)
     st.success("Log saved!")
+    if new_tips:
+        st.info("Personalized Tips:\n- " + "\n- ".join(new_tips))
+    else:
+        st.info("No new tips today—keep up the great work!")
 
-# Display logs
+# --- Display logs ---
 df = get_logs(household)
 if not df.empty:
     st.subheader(f"{household} Sleep Logs")
