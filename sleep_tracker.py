@@ -9,6 +9,19 @@ SUPABASE_URL = "https://ojyyyxwsezhulucusbqw.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qeXl5eHdzZXpodWx1Y3VzYnF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE3ODg1OTMsImV4cCI6MjA3NzM2NDU5M30.vAxOYfdv90_qZPwWHEpHtuQ8sgyukfsWADm6UQFDZig"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# test insert
+resp = supabase.table("sleep_logs").upsert({
+    "household":"TestHouse",
+    "user":"TestUser",
+    "date":"2025-10-30",
+    "sleep_hours":8,
+    "mood":7,
+    "tips_applied":"None",
+    "sleep_score":86
+}).execute()
+
+print(resp)
+
 def get_logs(household):
     response = supabase.table("sleep_logs").select("*").eq("household", household).execute()
     df = pd.DataFrame(response.data)
