@@ -41,8 +41,8 @@ st.set_page_config(page_title="Family Sleep Tracker", page_icon="🛌", layout="
 st.title("Family Sleep Tracker")
 
 # --- User Inputs ---
-household = st.text_input("Household name", "Best House")
-user = st.text_input("Your name", "Favorite Child")
+household = st.text_input("Household name", placeholder="Enter household name")
+user = st.text_input("Your name", placeholder="Enter your name")
 log_date = st.date_input("Date", date.today())
 sleep_hours = st.number_input("Sleep hours", min_value=0.0, max_value=24.0, value=7.0, step=0.25)
 mood = st.slider("Mood (1-10)", 1, 10, 7)
